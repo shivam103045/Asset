@@ -202,7 +202,7 @@ const fmt  = v => '₹' + Number(v||0).toLocaleString('en-IN', {maximumFractionD
 const fmtD = v => Number(v||0).toLocaleString('en-IN', {maximumFractionDigits:2});
 
 async function api(path, method='GET', body=null) {
-  const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+token } };
+  const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+token }, credentials: 'include' };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + path, opts);
   if (res.status === 401) { logout(); return null; }
@@ -272,6 +272,7 @@ async function doAuth() {
       const res = await fetch(API + '/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ password: adminPw })
       });
       if (!res.ok) throw new Error('Invalid admin password');
@@ -293,7 +294,7 @@ function logout() {
   document.getElementById('appPage').classList.remove('show');
   document.getElementById('authPage').classList.remove('hidden');
   switchTab('login');
-  fetch(API + '/api/admin/logout', { method: 'POST' });
+  fetch(API + '/api/admin/logout', { method: 'POST', credentials: 'include' });
 }
 
 
@@ -311,7 +312,7 @@ const NAVS = [
   {id:'payments',   label:'Payments',   ico:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>'},
   {id:'advisor',    label:'Cleo AI',    ico:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'},
 ];
-const PAGES = ['dashboard','salary','budget','portfolio','goals','emi','stocks','payments','advisor'];
+const PAGES = ['dashboard','salary','budget','portfolio','goals','emi','stocks','payments','advisor','admin'];
 
 function initApp() {
   if (localStorage.getItem('ae_is_admin') === 'true') {
