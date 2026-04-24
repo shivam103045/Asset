@@ -142,10 +142,17 @@ select.fc option{background:var(--bg3)}
       <div class="fg"><label>Monthly Income (₹)</label><input class="fc" id="regIncome" type="number" placeholder="50000"></div>
       <div class="fg"><label>Occupation</label><input class="fc" id="regOcc" placeholder="Software Engineer"></div>
     </div>
+    <div id="adminFields" class="hidden">
+      <div class="fg"><label>Admin Password</label><input class="fc" id="adminPass" type="password" placeholder="••••••"></div>
+    </div>
     <div class="err hidden" id="authErr"></div>
     <button class="btn btn-p" style="width:100%" id="authBtn" onclick="doAuth()">Sign In</button>
+    <div style="text-align:center;margin-top:16px;font-size:12px">
+      <a href="#" style="color:var(--cream3);text-decoration:none" id="adminLink" onclick="switchTab('admin')">Admin Access</a>
+    </div>
   </div>
 </div>
+
 
 <!-- APP -->
 <div id="appPage">
@@ -169,8 +176,10 @@ select.fc option{background:var(--bg3)}
     <div id="stocksPage" class="hidden"></div>
     <div id="paymentsPage" class="hidden"></div>
     <div id="advisorPage" class="hidden"></div>
+    <div id="adminPage" class="hidden"></div>
   </main>
 </div>
+
 <div id="modalRoot"></div>
 
 <script>
@@ -224,11 +233,25 @@ function hbar(label, val, total, color) {
 // ═══════════════════════════════════════════
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='register')));
-  document.getElementById('regFields').classList.toggle('hidden', tab==='login');
-  document.getElementById('regExtra').classList.toggle('hidden', tab==='login');
-  document.getElementById('authBtn').setAttribute('data-tab', tab);
-  document.getElementById('authBtn').textContent = tab==='login' ? 'Sign In' : 'Create Account';
+  document.getElementById('regFields').classList.toggle('hidden', tab!=='register');
+  document.getElementById('regExtra').classList.toggle('hidden', tab!=='register');
+  document.getElementById('adminFields').classList.toggle('hidden', tab!=='admin');
+  document.getElementById('authEmail').parentElement.classList.toggle('hidden', tab==='admin');
+  document.getElementById('authPass').parentElement.classList.toggle('hidden', tab==='admin');
+  
+  const authBtn = document.getElementById('authBtn');
+  authBtn.setAttribute('data-tab', tab);
+  if (tab === 'login') authBtn.textContent = 'Sign In';
+  else if (tab === 'register') authBtn.textContent = 'Create Account';
+  else if (tab === 'admin') authBtn.textContent = 'Admin Login';
+
+  document.getElementById('adminLink').textContent = tab === 'admin' ? 'Back to Login' : 'Admin Access';
+  document.getElementById('adminLink').onclick = (e) => {
+    e.preventDefault();
+    switchTab(tab === 'admin' ? 'login' : 'admin');
+  };
 }
+
 async function doAuth() {
   const tab = document.getElementById('authBtn').getAttribute('data-tab') || 'login';
   const email = document.getElementById('authEmail').value.trim();
@@ -237,27 +260,42 @@ async function doAuth() {
     let data;
     if (tab === 'login') {
       data = await api('/api/auth/login', 'POST', {email, password:pw});
-    } else {
+    } else if (tab === 'register') {
       data = await api('/api/auth/register', 'POST', {
         email, password:pw,
         name: document.getElementById('regName').value.trim(),
         monthly_income: parseFloat(document.getElementById('regIncome').value)||0,
         occupation: document.getElementById('regOcc').value
       });
+    } else if (tab === 'admin') {
+      const adminPw = document.getElementById('adminPass').value;
+      const res = await fetch(API + '/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPw })
+      });
+      if (!res.ok) throw new Error('Invalid admin password');
+      localStorage.setItem('ae_is_admin', 'true');
+      initAdminMode();
+      return;
     }
     if (!data?.token) { showErr('authErr','Unexpected response'); return; }
     token = data.token; user = data.user;
     localStorage.setItem('ae_tok', token); localStorage.setItem('ae_usr', JSON.stringify(user));
     initApp();
-  } catch(e) { showErr('authErr', e.message || 'Connection failed — is backend running on port 8000?'); }
+  } catch(e) { showErr('authErr', e.message || 'Connection failed'); }
 }
+
 function logout() {
   token=''; user=null; chatHist=[];
   localStorage.removeItem('ae_tok'); localStorage.removeItem('ae_usr');
+  localStorage.removeItem('ae_is_admin');
   document.getElementById('appPage').classList.remove('show');
   document.getElementById('authPage').classList.remove('hidden');
   switchTab('login');
+  fetch(API + '/api/admin/logout', { method: 'POST' });
 }
+
 
 // ═══════════════════════════════════════════
 //  NAV
@@ -276,6 +314,10 @@ const NAVS = [
 const PAGES = ['dashboard','salary','budget','portfolio','goals','emi','stocks','payments','advisor'];
 
 function initApp() {
+  if (localStorage.getItem('ae_is_admin') === 'true') {
+    initAdminMode();
+    return;
+  }
   document.getElementById('authPage').classList.add('hidden');
   document.getElementById('appPage').classList.add('show');
   document.getElementById('sbName').textContent  = user?.name  || 'User';
@@ -285,6 +327,76 @@ function initApp() {
   ).join('');
   nav('dashboard');
 }
+
+function initAdminMode() {
+  document.getElementById('authPage').classList.add('hidden');
+  document.getElementById('appPage').classList.add('show');
+  document.getElementById('sbName').textContent  = 'Administrator';
+  document.getElementById('sbEmail').textContent = 'System Access';
+  document.getElementById('sbNav').innerHTML = `
+    <button class="nav-item active" onclick="renderAdmin()" id="nav-admin">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Admin Console
+    </button>
+  `;
+  renderAdmin();
+}
+
+async function renderAdmin() {
+  PAGES.forEach(p => document.getElementById(p+'Page').classList.add('hidden'));
+  const el = document.getElementById('adminPage');
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <div class="ph"><div><h1>Admin Console</h1><p>System users & records</p></div></div>
+    <div class="card"><div class="spinner"></div></div>
+  `;
+  try {
+    const res = await fetch(API + '/api/admin/users');
+    if (!res.ok) throw new Error('Failed to fetch admin data');
+    const users = await res.json();
+    
+    const tbody = users.map(u => `
+      <tr>
+        <td><strong>${u.id}</strong></td>
+        <td>${u.name}</td>
+        <td>${u.email}</td>
+        <td>${fmt(u.monthly_income)}</td>
+        <td>${u.occupation || '—'}</td>
+        <td style="text-align:center">${u.total_salary_entries}</td>
+        <td style="text-align:center">${u.total_holdings}</td>
+        <td style="text-align:center">${u.total_loans}</td>
+        <td style="color:var(--cream3);font-size:11px">${new Date(u.created_at).toLocaleDateString()}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="9" style="text-align:center;padding:20px">No users registered yet</td></tr>';
+
+    el.innerHTML = `
+      <div class="ph"><div><h1>Admin Console</h1><p>System users & records</p></div></div>
+      <div class="g4 mb20">
+        ${sc('Total Users', users.length, 'gold', 'Registered accounts')}
+        ${sc('Total Income', fmt(users.reduce((s,u)=>s+u.monthly_income,0)), 'green', 'Combined reported')}
+        ${sc('Avg Income', fmt(users.length ? users.reduce((s,u)=>s+u.monthly_income,0)/users.length : 0), 'blue', 'Per user')}
+        ${sc('Activity', users.reduce((s,u)=>s+u.total_holdings+u.total_loans,0), '', 'Total records')}
+      </div>
+      <div class="card" style="overflow-x:auto">
+        <div class="ct mb14">User Records</div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Email</th><th>Income</th><th>Occupation</th>
+              <th style="text-align:center">Salary</th>
+              <th style="text-align:center">Holdings</th>
+              <th style="text-align:center">Loans</th>
+              <th>Joined</th>
+            </tr>
+          </thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div class="card" style="color:var(--red);text-align:center;padding:40px">${e.message}</div>`;
+  }
+}
+
 
 function nav(page) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
@@ -882,7 +994,7 @@ fetch(API + '/api/auth/ping')
     setTimeout(() => w.remove(), 10000);
   });
 
-if (token && user) {
+if ((token && user) || localStorage.getItem('ae_is_admin') === 'true') {
   initApp();
 }
 </script>

@@ -145,6 +145,14 @@ def init_db():
             note TEXT DEFAULT '',
             date TEXT DEFAULT (datetime('now'))
         );
+
+        -- Admin session storage (optional, but good for persistence)
+        CREATE TABLE IF NOT EXISTS admin_config(
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        INSERT OR IGNORE INTO admin_config(key, value) VALUES('admin_password', 'admin123');
+        
         """)
     print(f"[OK] AssetEdge Flask started. DB: {DB_PATH}")
 
@@ -175,6 +183,14 @@ def require_auth(f):
             return jsonify({"detail": "Token expired"}), 401
         except Exception:
             return jsonify({"detail": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("is_admin"):
+            return jsonify({"detail": "Admin access required"}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -501,6 +517,36 @@ def login():
     if not row or not verify_pw(b.get("password") or "", row["password_hash"]):
         return err("Invalid email or password", 401)
     return jsonify({"token": make_token(row["id"]), "user": user_dict(row)})
+
+# ── Admin Auth ──────────────────────────────────────────────────
+@app.post("/api/admin/login")
+def admin_login():
+    b = request.get_json() or {}
+    password = b.get("password")
+    if password == "admin123":
+        session["is_admin"] = True
+        session.permanent = True
+        return jsonify({"status": "ok", "message": "Admin authenticated"})
+    return err("Invalid admin password", 401)
+
+@app.post("/api/admin/logout")
+def admin_logout():
+    session.pop("is_admin", None)
+    return jsonify({"status": "ok"})
+
+@app.get("/api/admin/users")
+@require_admin
+def admin_get_users():
+    with db() as c:
+        users = rows_list(c.execute("SELECT id, email, name, monthly_income, occupation, created_at FROM users").fetchall())
+        # Enrich with some stats for each user
+        for u in users:
+            uid = u["id"]
+            u["total_salary_entries"] = c.execute("SELECT COUNT(*) FROM salary_entries WHERE user_id=?", (uid,)).fetchone()[0]
+            u["total_holdings"] = c.execute("SELECT COUNT(*) FROM holdings WHERE user_id=?", (uid,)).fetchone()[0]
+            u["total_goals"] = c.execute("SELECT COUNT(*) FROM goals WHERE user_id=?", (uid,)).fetchone()[0]
+            u["total_loans"] = c.execute("SELECT COUNT(*) FROM loans WHERE user_id=?", (uid,)).fetchone()[0]
+    return jsonify(users)
 
 @app.get("/api/auth/me")
 @require_auth
